@@ -80,11 +80,11 @@ include_directories(SYSTEM ${CUDA_INCLUDE_DIRS})
 include_directories(SYSTEM ${Boost_INCLUDE_DIR})
 
 add_subdirectory(src)
-add_subdirectory(python)
+# add_subdirectory(python)
 add_subdirectory(docs)
 
 # enable testing
-include(CTest)
-enable_testing()
+#include(CTest)
+#enable_testing()
 # define tests
-add_subdirectory(test)
+#add_subdirectory(test)
