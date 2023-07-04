@@ -1,5 +1,19 @@
-{ lib, stdenv, fetchFromGitHub, cmake, cudatoolkit, openbabel, zlib, boost
-, python310Packages, python310 }:
+{ lib
+, stdenv
+, fetchFromGitHub
+, cmake
+, cudatoolkit
+, openbabel
+, zlib
+, boost
+, python310Packages
+, python310
+, pkgconfig
+, llvmPackages_15
+, libcxx
+, icu72
+, gcc
+}:
 
 stdenv.mkDerivation rec {
   pname = "libmolgrid";
@@ -13,11 +27,20 @@ stdenv.mkDerivation rec {
   #   hash = "sha256-YdEjXfrTf9hw0nMbC2JWZ7Gf/psZ4RQ6v6GUrx5yIoA=";
   # };
 
-  nativeBuildInputs = [ cmake ];
+  makeFlags = [ "-stdlib=libstdc++" ];
+
+  nativeBuildInputs = [
+    cmake
+    pkgconfig
+    libcxx
+  ];
 
   buildInputs = [
+    gcc
     cudatoolkit
+    libcxx
     openbabel
+    #stdenv.cc.cc.lib
     zlib
     boost.dev
     python310Packages.boost
@@ -27,8 +50,6 @@ stdenv.mkDerivation rec {
     python310Packages.openbabel-bindings
     python310
   ];
-
-  doCheck = false;
 
   OPENBABEL3_INCLUDE_DIR = "${openbabel}/include/openbabel3";
 

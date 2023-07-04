@@ -84,7 +84,7 @@ add_subdirectory(src)
 add_subdirectory(docs)
 
 # enable testing
-#include(CTest)
-#enable_testing()
+include(CTest)
+enable_testing()
 # define tests
-#add_subdirectory(test)
+add_subdirectory(test)
