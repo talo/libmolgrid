@@ -30,9 +30,9 @@ include(cmake/safeguards.cmake)
 
 # place binaries and libraries according to GNU standards
 include(GNUInstallDirs)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR})
+# set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+# set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR})
 
 #dependencies
 find_package(CUDA REQUIRED)
@@ -88,3 +88,6 @@ include(CTest)
 enable_testing()
 # define tests
 add_subdirectory(test)
+
+configure_file(libmolgrid.pc.in ${CMAKE_INSTALL_LIBDIR}/pkgconfig/libmolgrid.pc @ONLY)
+#install(FILES ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/pkgconfig/libmolgrid.pc DESTINATION lib/pkgconfig)
