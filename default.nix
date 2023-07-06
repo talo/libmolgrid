@@ -27,7 +27,7 @@ stdenv.mkDerivation rec {
   #   hash = "sha256-YdEjXfrTf9hw0nMbC2JWZ7Gf/psZ4RQ6v6GUrx5yIoA=";
   # };
 
-  buildFlags = [ "-stdlib=libstdc++" ];
+  #buildFlags = [ "-stdlib=libstdc++" ];
 
   nativeBuildInputs = [
     cmake
