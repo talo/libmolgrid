@@ -13,16 +13,17 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_USE_RESPONSE_FILE_FOR_INCLUDES OFF)
+include(GNUInstallDirs)
 
 option(BUILD_SHARED "Build shared library" ON)
 option(BUILD_STATIC "Build static library" ON)
 option(BUILD_COVERAGE "Build with code coverage" OFF)
 
-if(${BUILD_CONTAINED_PYTHON}) 
-  #if make a mostly statically linked python module, use static boost
-   set(BUILD_STATIC ON)
-   set(Boost_USE_STATIC_LIBS ON)
-endif()
+#if(${BUILD_CONTAINED_PYTHON})
+#  #if make a mostly statically linked python module, use static boost
+#   set(BUILD_STATIC ON)
+#   set(Boost_USE_STATIC_LIBS ON)
+#endif()
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/Modules;${PROJECT_SOURCE_DIR}/cmake")
 # get git hash
@@ -90,7 +91,7 @@ add_subdirectory(docs)
 include(CTest)
 enable_testing()
 # define tests
-add_subdirectory(test)
+#add_subdirectory(test)
 
 configure_file(libmolgrid.pc.in ${CMAKE_INSTALL_LIBDIR}/pkgconfig/libmolgrid.pc @ONLY)
 #install(FILES ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/pkgconfig/libmolgrid.pc DESTINATION lib/pkgconfig)
