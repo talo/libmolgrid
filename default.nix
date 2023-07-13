@@ -8,11 +8,7 @@
 , boost
 , python310Packages
 , python310
-, pkgconfig
-, llvmPackages_15
-, libcxx
-, icu72
-, gcc
+, pkg-config
 }:
 
 stdenv.mkDerivation rec {
@@ -31,14 +27,12 @@ stdenv.mkDerivation rec {
 
   nativeBuildInputs = [
     cmake
-    pkgconfig
-    libcxx
+    pkg-config
   ];
 
   buildInputs = [
-    gcc
+    #gcc
     cudatoolkit
-    libcxx
     openbabel
     #stdenv.cc.cc.lib
     zlib
