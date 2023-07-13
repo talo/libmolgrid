@@ -89,7 +89,7 @@ add_subdirectory(docs)
 include(CTest)
 enable_testing()
 # define tests
-#add_subdirectory(test)
+add_subdirectory(test)
 
 configure_file(libmolgrid.pc.in ${CMAKE_INSTALL_LIBDIR}/pkgconfig/libmolgrid.pc @ONLY)
 #install(FILES ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/pkgconfig/libmolgrid.pc DESTINATION lib/pkgconfig)
