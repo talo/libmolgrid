@@ -2,20 +2,20 @@
 , stdenv
 , fetchFromGitHub
 , cmake
-, cudatoolkit
+, cudaPackages
 , openbabel
 , zlib
 , boost
-, python310Packages
-, python310
+, python3
+, python3Packages
 , pkg-config
 }:
 
 stdenv.mkDerivation rec {
   pname = "libmolgrid";
-  version = "0.5.3";
-
+  version = "master";
   src = ./.;
+
   # fetchFromGitHub {
   #   owner = "gnina";
   #   repo = "libmolgrid";
@@ -32,22 +32,27 @@ stdenv.mkDerivation rec {
 
   buildInputs = [
     #gcc
-    cudatoolkit
+    cudaPackages.cuda_cccl
+    cudaPackages.cuda_cudart
+    cudaPackages.cuda_nvcc
     openbabel
     #stdenv.cc.cc.lib
     zlib
     boost.dev
-    python310Packages.boost
-    python310Packages.pytest
-    python310Packages.numpy
-    python310Packages.pyquaternion
-    python310Packages.openbabel-bindings
-    python310
+    python3
+    python3Packages.boost
+    python3Packages.numpy
+    python3Packages.openbabel-bindings
+    python3Packages.pyquaternion
+    python3Packages.pytest
   ];
 
   OPENBABEL3_INCLUDE_DIR = "${openbabel}/include/openbabel3";
 
-  cmakeFlags = [ "-DOPENBABEL3_INCLUDE_DIR=${OPENBABEL3_INCLUDE_DIR}" ];
+  cmakeFlags = [
+    "-DOPENBABEL3_INCLUDE_DIR=${OPENBABEL3_INCLUDE_DIR}"
+    "-DCMAKE_CUDA_ARCHITECTURES=70;80;86"
+  ];
 
   meta = with lib; {
     description =
