@@ -1,59 +1,47 @@
-{ lib
-, stdenv
-, fetchFromGitHub
-, cmake
-, cudatoolkit
-, openbabel
-, zlib
-, boost
-, python310Packages
-, python310
-, pkg-config
+{
+  lib,
+  cmake,
+  boost,
+  python3,
+  python3Packages,
+  cudaPackages,
+  openbabel,
+  zlib,
 }:
 
-stdenv.mkDerivation rec {
+cudaPackages.backendStdenv.mkDerivation {
   pname = "libmolgrid";
-  version = "0.5.3";
-
+  version = "master";
   src = ./.;
-  # fetchFromGitHub {
-  #   owner = "gnina";
-  #   repo = "libmolgrid";
-  #   rev = "v${version}";
-  #   hash = "sha256-YdEjXfrTf9hw0nMbC2JWZ7Gf/psZ4RQ6v6GUrx5yIoA=";
-  # };
-
-  #buildFlags = [ "-stdlib=libstdc++" ];
 
   nativeBuildInputs = [
     cmake
-    pkg-config
+    cudaPackages.cuda_nvcc
   ];
 
   buildInputs = [
-    #gcc
-    cudatoolkit
-    openbabel
-    #stdenv.cc.cc.lib
-    zlib
     boost.dev
-    python310Packages.boost
-    python310Packages.pytest
-    python310Packages.numpy
-    python310Packages.pyquaternion
-    python310Packages.openbabel-bindings
-    python310
+    python3
+    python3Packages.boost
+    python3Packages.numpy
+    python3Packages.openbabel-bindings
+    python3Packages.pyquaternion
+    python3Packages.pytest
+    cudaPackages.cuda_cudart
+    cudaPackages.cuda_cccl
+    openbabel
+    zlib
   ];
 
-  OPENBABEL3_INCLUDE_DIR = "${openbabel}/include/openbabel3";
-
-  cmakeFlags = [ "-DOPENBABEL3_INCLUDE_DIR=${OPENBABEL3_INCLUDE_DIR}" ];
+  cmakeFlags = [
+    "-DCMAKE_CUDA_ARCHITECTURES=70;80;86"
+    "-DOPENBABEL3_INCLUDE_DIR=${openbabel}/include/openbabel3"
+  ];
 
   meta = with lib; {
-    description =
-      "Comprehensive library for fast, GPU accelerated molecular gridding for deep learning workflows";
+    description = "Comprehensive library for fast, GPU accelerated molecular gridding for deep learning workflows";
     homepage = "https://github.com/gnina/libmolgrid";
     license = licenses.asl20;
-    maintainers = with maintainers; [ ];
+    maintainers = [ ];
   };
 }

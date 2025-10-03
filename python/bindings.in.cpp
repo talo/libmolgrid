@@ -190,7 +190,7 @@ std::vector< std::vector<T> > listlist_to_vecvec(list l) {
 class PythonCallbackIndexTyper: public CallbackIndexTyper {
 
     boost::python::object callback;
-
+    using CallbackIndexTyper::get_atom_type_index;
   public:
 
     /// iniitalize callbacktyper, if names are not provided, numerical names will be generated
@@ -217,7 +217,7 @@ class PythonCallbackIndexTyper: public CallbackIndexTyper {
 class PythonCallbackVectorTyper: public CallbackVectorTyper {
 
     boost::python::object callback;
-
+    using CallbackVectorTyper::get_atom_type_vector;
   public:
 
     /// iniitalize callbacktyper, if names are not provided, numerical names will be generated
@@ -555,7 +555,7 @@ MAKE_ALL_GRIDS()
       init<object, unsigned, list>(
           (arg("func"), arg("num_types"), arg("names") = list() ) ))
       .def("num_types", &PythonCallbackIndexTyper::num_types)
-      .def("get_atom_type_index", &PythonCallbackIndexTyper::get_atom_type_index)
+      .def<std::pair<int,float> (PythonCallbackIndexTyper::*)(object a) const>("get_atom_type_index", &PythonCallbackIndexTyper::get_atom_type_index)
       .def("get_type_names",&PythonCallbackIndexTyper::get_type_names);
   implicitly_convertible<std::shared_ptr<PythonCallbackIndexTyper>, std::shared_ptr<AtomTyper> >();
 
@@ -574,7 +574,7 @@ MAKE_ALL_GRIDS()
       init<object, unsigned, list>(
           (arg("func"), arg("num_types"), arg("names") = list() ) ))
       .def("num_types", &PythonCallbackVectorTyper::num_types)
-      .def("get_atom_type_vector", &PythonCallbackVectorTyper::get_atom_type_vector)
+      .def< tuple (PythonCallbackVectorTyper::*)(object a) const >("get_atom_type_vector", &PythonCallbackVectorTyper::get_atom_type_vector)
       .def("get_type_names",&PythonCallbackVectorTyper::get_type_names);
   implicitly_convertible<std::shared_ptr<PythonCallbackVectorTyper>, std::shared_ptr<AtomTyper> >();
 
@@ -768,6 +768,9 @@ MAKE_ALL_GRIDS()
       .def("get_large_epoch_num", &ExampleProvider::get_large_epoch_num, "Return large epoch number, where an epoch means every example has been seen at LEAST once.")
       .def("small_epoch_size", &ExampleProvider::small_epoch_size,"Return size of small epoch")
       .def("large_epoch_size", &ExampleProvider::large_epoch_size,"Return size of large epoch")
+      .def("mem_caches_size", &ExampleProvider::mem_caches_size, "Return number of elements currently cached in-memory.")
+      .def("save_mem_caches", static_cast<void (ExampleProvider::*)(const std::string& ) const>(&ExampleProvider::save_mem_caches),arg("file_name"),"Write current in-memory cache state to specified file.")
+      .def("load_mem_caches", static_cast<void (ExampleProvider::*)(const std::string& )>(&ExampleProvider::load_mem_caches),arg("file_name"),"Read specified file into in-memory cache.")
       .def("reset", &ExampleProvider::reset, "Reset iterator to beginning")
       .def("__iter__", +[](object self) { return self;})
       .def("__next__", +[](ExampleProvider& self) -> std::vector<Example> {

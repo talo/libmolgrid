@@ -12,6 +12,7 @@
 #include <vector>
 #include <type_traits>
 #include <utility>
+#include <boost/bind/bind.hpp>
 #include <boost/python.hpp>
 #include <boost/python/suite/indexing/vector_indexing_suite.hpp>
 #include <boost/python/make_constructor.hpp>
@@ -24,6 +25,7 @@
 
 #define TYPEARG(Z, N, T) BOOST_PP_COMMA_IF(N) T
 #define NTYPES(N, T) BOOST_PP_REPEAT(N, TYPEARG, T)
+
 
 extern bool python_gpu_enabled;
 bool init_numpy();

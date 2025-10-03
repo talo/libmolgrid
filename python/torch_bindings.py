@@ -1,6 +1,11 @@
+import math
 import torch
+from torch.distributed import get_rank, get_world_size
+from torch.utils.data import DistributedSampler
 import molgrid as mg
 import types
+from itertools import islice
+
 def tensor_as_grid(t):
     '''Return a Grid view of tensor t'''
     gname = 'Grid'
@@ -157,9 +162,12 @@ class Coords2Grid(torch.nn.Module):
                 self.gmaker.get_resolution(), self.gmaker.get_dimension(), self.center[0], self.center[1], self.center[2])
         
                            
-class MolDataset(torch.utils.data.Dataset):
+class MolMapDataset(torch.utils.data.Dataset):
     '''A pytorch mappable dataset for molgrid training files.'''
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args,
+                 random_translation: float=0.0,
+                 random_rotation: bool=False,
+                 **kwargs):
         '''Initialize mappable MolGridDataset.  
         :param input(s): File name(s) of training example files 
         :param typers: A tuple of AtomTypers to use
@@ -173,9 +181,9 @@ class MolDataset(torch.utils.data.Dataset):
         :param ligmolcache: precalculated molcache2 file for ligand; if doesn't exist, will look in data_root
         '''
 
+        self._random_translation, self._random_rotation = random_translation, random_rotation
         if 'typers' in kwargs:
-            typers = kwargs['typers']
-            del kwargs['typers']
+            typers = kwargs.pop('typers')
             self.examples = mg.ExampleDataset(*typers,**kwargs)
             self.typers = typers
         else:
@@ -184,39 +192,42 @@ class MolDataset(torch.utils.data.Dataset):
         self.types_files = list(args)
         self.examples.populate(self.types_files)
             
-        self.num_labels = self.examples.num_labels()
-
-        
     def __len__(self):
         return len(self.examples)
     
     def __getitem__(self, idx):
         ex = self.examples[idx]
-        center = torch.tensor([i for i in ex.coord_sets[-1].center()])
+        center = torch.tensor(list(ex.coord_sets[-1].center()))
         coordinates = ex.merge_coordinates()
+        if self._random_translation > 0 or self._random_rotation:
+            mg.Transform(ex.coord_sets[-1].center(), self._random_translation, self._random_rotation).forward(coordinates, coordinates)
         if coordinates.has_vector_types() and coordinates.size() > 0:
             atomtypes = torch.tensor(coordinates.type_vector.tonumpy(),dtype=torch.long).type('torch.FloatTensor')
         else:
             atomtypes = torch.tensor(coordinates.type_index.tonumpy(),dtype=torch.long).type('torch.FloatTensor')
         coords = torch.tensor(coordinates.coords.tonumpy())
+        length = len(coords)
         radii = torch.tensor(coordinates.radii.tonumpy())
-        labels = [ex.labels[lab] for lab in range(self.num_labels)]
-        return center, coords, atomtypes, radii, labels
+        labels = torch.tensor(ex.labels)
+        return length, center, coords, atomtypes, radii, labels
+
     
     def __getstate__(self):
-        settings = self.examples.settings()
+        settings = self.examples.settings() 
         keyword_dict = {sett: getattr(settings, sett) for sett in dir(settings) if not sett.startswith('__')}
         if self.typers is not None: ## This will fail if self.typers is not none, need a way to pickle AtomTypers
-            raise NotImplementedError('MolDataset does not support pickling when not using the default Gnina atom typers, this uses %s'.format(str(self.typers)))
+            raise NotImplementedError('MolMapDataset does not support pickling when not using the default Gnina atom typers, this uses %s'.format(str(self.typers)))
             keyword_dict['typers'] = self.typers
+        keyword_dict['random_translation'] = self._random_translation
+        keyword_dict['random_rotation'] = self._random_rotation
         return keyword_dict, self.types_files
 
     def __setstate__(self,state):
         kwargs=state[0]
-        
+        self._random_translation = kwargs.pop('random_translation')
+        self._random_rotation = kwargs.pop('random_rotation')
         if 'typers' in kwargs:
-            typers = kwargs['typers']
-            del kwargs['typers']
+            typers = kwargs.pop('typers')
             self.examples = mg.ExampleDataset(*typers, **kwargs)
             self.typers = typers
         else:
@@ -225,33 +236,137 @@ class MolDataset(torch.utils.data.Dataset):
         self.types_files = list(state[1])
         self.examples.populate(self.types_files)
 
-        self.num_labels = self.examples.num_labels()
 
     @staticmethod
     def collateMolDataset(batch):
-        '''collate_fn for use in torch.utils.data.Dataloader when using the MolDataset.
+        '''collate_fn for use in torch.utils.data.Dataloader when using the MolMapDataset.
         Returns lengths, centers, coords, types, radii, labels all padded to fit maximum size of batch'''
-        lens = []
-        centers = []
-        lcoords = []
-        ltypes = []
-        lradii = []
-        labels = []
-        for center,coords,types,radii,label in batch:
-            lens.append(coords.shape[0])
-            centers.append(center)
-            lcoords.append(coords)
-            ltypes.append(types)
-            lradii.append(radii)
-            labels.append(torch.tensor(label))
+        batch_list = list(zip(*batch))
+        lengths = torch.tensor(batch_list[0])
+        centers = torch.stack(batch_list[1], dim=0)
+        coords = torch.nn.utils.rnn.pad_sequence(batch_list[2], batch_first=True)
+        types = torch.nn.utils.rnn.pad_sequence(batch_list[3], batch_first=True)
+        radii = torch.nn.utils.rnn.pad_sequence(batch_list[4], batch_first=True)
+        labels = torch.stack(batch_list[5], dim=0)
+
+        return lengths, centers, coords, types, radii, labels
+
+class MolIterDataset(torch.utils.data.IterableDataset):
+    '''A pytorch iterable dataset for molgrid training files. Use with a DataLoader(batch_size=None) for best results.'''
+    def __init__(self, *args,
+                 random_translation: float=0.0,
+                 random_rotation: bool=False,
+                 **kwargs):
+        '''Initialize mappable MolGridDataset.  
+        :param input(s): File name(s) of training example files 
+        :param typers: A tuple of AtomTypers to use
+        :type typers: tuple
+        :param cache_structs: retain coordinates in memory for faster training
+        :param add_hydrogens: protonate molecules read using openbabel
+        :param duplicate_first: clone the first coordinate set to be paired with each of the remaining (receptor-ligand pairs)
+        :param make_vector_types: convert index types into one-hot encoded vector types
+        :param data_root: prefix for data files
+        :param recmolcache: precalculated molcache2 file for receptor (first molecule); if doesn't exist, will look in data _root
+        :param ligmolcache: precalculated molcache2 file for ligand; if doesn't exist, will look in data_root
+        '''
+
+        # molgrid.set_random_seed(kwargs['random_seed'])
+        self._random_translation, self._random_rotation = random_translation, random_rotation
+        if 'typers' in kwargs:
+            typers = kwargs.pop('typers')
+            self.examples = mg.ExampleProvider(*typers,**kwargs)
+            self.typers = typers
+        else:
+            self.examples = mg.ExampleProvider(**kwargs)
+            self.typers = None
+        self.types_files = list(args)
+        self.examples.populate(self.types_files)
+
+        self._num_labels = self.examples.num_labels()
+
+    def generate(self):
+        for batch in self.examples:
+            yield self.batch_to_tensors(batch)
+            
+    def batch_to_tensors(self, batch):
+        batch_lengths = torch.zeros(len(batch), dtype=torch.int64)
+        batch_centers = torch.zeros((len(batch), 3), dtype=torch.float32)
+        batch_coords = []
+        batch_atomtypes = []
+        batch_radii = []
+        batch_labels = torch.zeros((len(batch),self._num_labels), dtype=torch.float32)
+        for idx, ex in enumerate(batch):
+            length, center, coords, atomtypes, radii, labels = self.example_to_tensor(ex)
+            batch_lengths[idx] = length
+            batch_centers[idx,:] = center
+            batch_coords.append(coords)
+            batch_atomtypes.append(atomtypes)
+            batch_radii.append(radii)
+            batch_labels[idx,:] = labels
+        pad_coords = torch.nn.utils.rnn.pad_sequence(batch_coords, batch_first=True)
+        pad_atomtypes = torch.nn.utils.rnn.pad_sequence(batch_atomtypes, batch_first=True)
+        pad_radii = torch.nn.utils.rnn.pad_sequence(batch_radii, batch_first=True)
+        return batch_lengths, batch_centers, pad_coords, pad_atomtypes, pad_radii, batch_labels
 
 
-        lengths = torch.tensor(lens)
-        lcoords = torch.nn.utils.rnn.pad_sequence(lcoords, batch_first=True)
-        ltypes = torch.nn.utils.rnn.pad_sequence(ltypes, batch_first=True)
-        lradii = torch.nn.utils.rnn.pad_sequence(lradii, batch_first=True)
+    def example_to_tensor(self, ex):
+        center = torch.tensor(list(ex.coord_sets[-1].center()))
+        coordinates = ex.merge_coordinates()
+        if self._random_translation > 0 or self._random_rotation:
+            mg.Transform(ex.coord_sets[-1].center(), self._random_translation, self._random_rotation).forward(coordinates, coordinates)
+        if coordinates.has_vector_types() and coordinates.size() > 0:
+            atomtypes = torch.tensor(coordinates.type_vector.tonumpy(),dtype=torch.long).type('torch.FloatTensor')
+        else:
+            atomtypes = torch.tensor(coordinates.type_index.tonumpy(),dtype=torch.long).type('torch.FloatTensor')
+        coords = torch.tensor(coordinates.coords.tonumpy())
+        length = len(coords)
+        radii = torch.tensor(coordinates.radii.tonumpy())
+        labels = torch.tensor(ex.labels)
+        return length, center, coords, atomtypes, radii, labels
 
-        centers = torch.stack(centers,dim=0)
-        labels = torch.stack(labels,dim=0)
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        worker_id = worker_info.id if worker_info is not None else 0
+        n_workers = worker_info.num_workers if worker_info is not None else 1
 
-        return lengths, centers, lcoords, ltypes, lradii, labels
+        world_size = get_world_size() if torch.distributed.is_initialized() else 1
+        if world_size == 1:
+            return islice(self.generate(), worker_id, None, n_workers)
+        process_rank = get_rank()
+
+        return islice(self.generate(), process_rank * n_workers + worker_id, None, n_workers * world_size)
+
+    def __len__(self):
+        settings = self.examples.settings()
+        batch_size = settings.default_batch_size
+        if settings.iteration_scheme == mg.IterationScheme.SmallEpoch:
+            return self.examples.small_epoch_size() // batch_size
+        elif settings.iteration_scheme == mg.IterationScheme.LargeEpoch:
+            return math.ceil(self.examples.large_epoch_size() / batch_size)
+        else:
+            NotImplementedError('Iteration scheme %s not supported'.format(itr_scheme))
+
+
+    def __getstate__(self):
+        settings = self.examples.settings() 
+        keyword_dict = {sett: getattr(settings, sett) for sett in dir(settings) if not sett.startswith('__')}
+        if self.typers is not None: ## This will fail if self.typers is not none, need a way to pickle AtomTypers
+            raise NotImplementedError('MolIterDataset does not support pickling when not using the default Gnina atom typers, this uses %s'.format(str(self.typers)))
+            keyword_dict['typers'] = self.typers
+        keyword_dict['random_translation'] = self._random_translation
+        keyword_dict['random_rotation'] = self._random_rotation
+        return keyword_dict, self.types_files
+
+    def __setstate__(self,state):
+        kwargs=state[0]
+        self._random_translation = kwargs.pop('random_translation')
+        self._random_rotation = kwargs.pop('random_rotation')
+        if 'typers' in kwargs:
+            typers = kwargs.pop('typers')
+            self.examples = mg.ExampleProvider(*typers, **kwargs)
+            self.typers = typers
+        else:
+            self.examples = mg.ExampleProvider(**kwargs)
+            self.typers = None
+        self.types_files = list(state[1])
+        self.examples.populate(self.types_files)

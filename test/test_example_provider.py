@@ -3,6 +3,7 @@ import molgrid
 import numpy as np
 import os
 import torch
+import tempfile
 
 from pytest import approx
 from numpy import around
@@ -37,6 +38,28 @@ def test_mol_example_provider(capsys):
 
     assert (6.0000, 3.8697, -6.6990, -4.3010, -9.0000, 3.3747, 6.0000, 3.8697, -6.6990, -4.3010) == approx(tuple(l1))
 
+def test_mem_caches_example_provider(capsys):
+    fname = datadir + "/smallmol.types"
+    e = molgrid.ExampleProvider(data_root=datadir + "/structs")
+    e2 = molgrid.ExampleProvider(data_root=datadir + "/structs")
+
+    e.populate(fname)
+    e2.populate(fname)
+    assert e.mem_caches_size() == 0
+    with capsys.disabled():  # bunch openbabel garbage
+        ex = e.next()
+    assert e.mem_caches_size() == 2
+    with tempfile.NamedTemporaryFile() as tmp:
+        e.save_mem_caches(tmp.name)
+        e.load_mem_caches(tmp.name)
+        e2.load_mem_caches(tmp.name)
+    assert e.mem_caches_size() == 2
+    assert e2.mem_caches_size() == 2
+    with capsys.disabled():  # bunch openbabel garbage
+        ex = e.next()
+        ex = e2.next()
+    assert e.mem_caches_size() == 4
+    assert e2.mem_caches_size() == 2    
 
 def test_custom_typer_example_provider():
     fname = datadir + "/small.types"
@@ -331,19 +354,19 @@ def test_example_provider_iterator_interface():
             break
 
         
-def test_pytorch_dataset():
+def test_pytorch_mapdataset():
     fname = datadir + "/small.types"
     
     e = molgrid.ExampleProvider(data_root=datadir + "/structs")
     e.populate(fname)
-    m = molgrid.MolDataset(fname, data_root=datadir + "/structs")
+    m = molgrid.MolMapDataset(fname, data_root=datadir + "/structs")
     
     assert len(m) == 1000
 
     ex = e.next()
     coordinates = ex.merge_coordinates()
 
-    center, coords, types, radii, labels = m[0]
+    lengths, center, coords, types, radii, labels = m[0]
 
     assert list(center.shape) == [3]
     np.testing.assert_allclose(coords, coordinates.coords.tonumpy())
@@ -355,13 +378,13 @@ def test_pytorch_dataset():
     np.testing.assert_allclose(labels[1], 6.05)
     np.testing.assert_allclose(labels[-1], 0.162643)
 
-    center, coords, types, radii, labels = m[-1]
+    lengths, center, coords, types, radii, labels = m[-1]
     assert labels[0] == 0
     np.testing.assert_allclose(labels[1], -10.3)    
 
     '''Testing out the collate_fn when used with torch.utils.data.DataLoader'''
     torch_loader = torch.utils.data.DataLoader(
-        m, batch_size=8, collate_fn=molgrid.MolDataset.collateMolDataset)
+        m, batch_size=8, collate_fn=molgrid.MolMapDataset.collateMolDataset)
     iterator = iter(torch_loader)
     next(iterator)
     lengths, center, coords, types, radii, labels = next(iterator)
@@ -373,7 +396,7 @@ def test_pytorch_dataset():
     assert radii.shape[0] == 8
     assert labels.shape[0] == 8
 
-    mcenter, mcoords, mtypes, mradii, mlabels = m[10]
+    mlengths, mcenter, mcoords, mtypes, mradii, mlabels = m[10]
     np.testing.assert_allclose(center[2], mcenter) 
     np.testing.assert_allclose(coords[2][:lengths[2]], mcoords)
     np.testing.assert_allclose(types[2][:lengths[2]], mtypes)
@@ -399,6 +422,73 @@ def test_pytorch_dataset():
     singlegrid = molgrid.MGrid4f(*shape)
     gmaker.forward(ex, singlegrid.cpu())
     np.testing.assert_allclose(mgrid[2].tonumpy(),singlegrid.tonumpy(),atol=1e-5)
+
+def test_pytorch_iterdataset():
+    fname = datadir + "/small.types"
+    
+    BSIZE = 25
+    e = molgrid.ExampleProvider(data_root=datadir + "/structs", default_batch_size=BSIZE)
+    e.populate(fname)
+    m = molgrid.MolIterDataset(fname, data_root=datadir + "/structs", default_batch_size=BSIZE)
+    m_iter = iter(m)
+    
+    ex = e.next()
+    coordinates = ex.merge_coordinates()
+
+    lengths, centers, coords, types, radii, labels = next(m_iter)
+
+    assert list(centers.shape) == [BSIZE,3]
+    np.testing.assert_allclose(coords[0,:lengths[0],:], coordinates.coords.tonumpy())
+    np.testing.assert_allclose(types[0,:lengths[0]], coordinates.type_index.tonumpy())
+    np.testing.assert_allclose(radii[0,:lengths[0]], coordinates.radii.tonumpy())
+
+    assert len(labels) == BSIZE
+    assert len(labels[0]) == 3
+    assert labels[0,0] == 1
+    np.testing.assert_allclose(labels[0,1], 6.05)
+    np.testing.assert_allclose(labels[0,-1], 0.162643)
+
+    # ensure it works with more than 1 worker
+    m.examples.reset()
+    torch_loader = torch.utils.data.DataLoader(
+        m, batch_size=None, num_workers=2)
+    iterator = iter(torch_loader)
+    next(iterator)
+    lengths, center, coords, types, radii, labels = next(iterator)
+    assert len(lengths) == BSIZE
+    assert center.shape[0] == BSIZE
+    assert coords.shape[0] == BSIZE
+    assert types.shape[0] == BSIZE
+    assert radii.shape[0] == BSIZE
+    assert labels.shape[0] == BSIZE
+
+    e.reset()
+    e.next_batch()
+    ex = e.next_batch()
+    coordinates = ex[2].merge_coordinates()
+    np.testing.assert_allclose(center[2], np.array(list(ex[2].coord_sets[-1].center()))) 
+    np.testing.assert_allclose(coords[2,:lengths[2]], coordinates.coords.tonumpy())
+    np.testing.assert_allclose(types[2,:lengths[2]], coordinates.type_index.tonumpy())
+    np.testing.assert_allclose(radii[2,:lengths[2]], coordinates.radii.tonumpy())
+    assert len(labels[2]) == e.num_labels()
+    assert labels[2,0] == ex[2].labels[0]
+    assert labels[2,1] == ex[2].labels[1]
+    
+    gmaker = molgrid.GridMaker()
+    shape = gmaker.grid_dimensions(e.num_types())
+    mgrid = molgrid.MGrid5f(BSIZE,*shape)
+
+    gmaker.forward(center, coords, types, radii, mgrid.cpu())
+    
+    mgridg = molgrid.MGrid5f(BSIZE,*shape)
+    gmaker.forward(center.cuda(), coords.cuda(), types.cuda(), radii.cuda(), mgridg.gpu())
+    
+    np.testing.assert_allclose(mgrid.tonumpy(),mgridg.tonumpy(),atol=1e-5)
+    
+    #compare against standard provider
+    egrid = molgrid.MGrid5f(BSIZE,*shape)
+    gmaker.forward(ex, egrid.cpu())
+    np.testing.assert_allclose(mgridg.tonumpy(),egrid.tonumpy(),atol=1e-5)
     
         
 def test_duplicated_examples():
