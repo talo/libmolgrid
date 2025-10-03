@@ -9,23 +9,37 @@
     { self, nixpkgs }:
     let
       system = "x86_64-linux";
-      pkgs = import nixpkgs {
-        inherit system;
-        config.allowUnfree = true;
-        config.cudaSupport = true;
-        config.cudaCapabilities = [
-          "7.0"
-          "8.0"
-          "8.6"
-        ];
-        cudaForwardCompat = false;
-      };
     in
     {
       packages.${system} = {
-        libmolgrid = pkgs.callPackage (import ./default.nix) {
-          cudaPackages = pkgs.cudaPackages_12_4;
-        };
+        libmolgrid =
+          let
+            pkgs = import nixpkgs {
+              inherit system;
+              config.allowUnfree = true;
+              config.cudaSupport = true;
+            };
+          in
+          pkgs.callPackage ./default.nix { };
+        libmolgrid_bullet =
+          let
+            system = "x86_64-linux";
+            pkgs = import nixpkgs {
+              inherit system;
+              overlays = [
+                (final: prev: { cudaPackages = prev.cudaPackages_12_4; })
+              ];
+              config.allowUnfree = true;
+              config.cudaSupport = true;
+              config.cudaCapabilities = [
+                "7.0"
+                "8.0"
+                "8.6"
+              ];
+              cudaForwardCompat = false;
+            };
+          in
+          pkgs.callPackage ./default.nix { };
         default = self.packages.${system}.libmolgrid;
       };
     };
