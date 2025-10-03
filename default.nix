@@ -1,13 +1,13 @@
 {
   lib,
   stdenv,
-  boost,
   cmake,
-  cudaPackages,
-  openbabel,
   pkg-config,
+  boost,
+  cudaPackages,
   python3,
   python3Packages,
+  openbabel,
   zlib,
 }:
 
